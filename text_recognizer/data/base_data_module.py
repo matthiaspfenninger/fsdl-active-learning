@@ -60,6 +60,7 @@ class BaseDataModule(pl.LightningDataModule):
         self.data_train: Union[BaseDataset, ConcatDataset]
         self.data_val: Union[BaseDataset, ConcatDataset]
         self.data_test: Union[BaseDataset, ConcatDataset]
+        self.data_unlabelled=Union[BaseDataset,ConcatDataset]
 
     @classmethod
     def data_dirname(cls):
@@ -117,3 +118,12 @@ class BaseDataModule(pl.LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.on_gpu,
         )
+
+    def unlabelled_dataloader(self):
+        return DataLoader(
+            self.data_unlabelled,
+            shuffle=False,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=self.on_gpu,
+        )    

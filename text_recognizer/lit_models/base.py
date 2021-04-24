@@ -1,6 +1,7 @@
 import argparse
 import pytorch_lightning as pl
 import torch
+import numpy as np
 
 
 OPTIMIZER = "Adam"
@@ -50,6 +51,7 @@ class BaseLitModel(pl.LightningModule):  # pylint: disable=too-many-ancestors
         self.train_acc = Accuracy()
         self.val_acc = Accuracy()
         self.test_acc = Accuracy()
+        self.predictions =[]
 
     @staticmethod
     def add_to_argparse(parser):
@@ -89,8 +91,19 @@ class BaseLitModel(pl.LightningModule):  # pylint: disable=too-many-ancestors
         self.val_acc(logits, y)
         self.log("val_acc", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
 
+    def reset_predictions(self):
+        print('Resetting Predictions')
+        self.predictions=np.array([])    
+
     def test_step(self, batch, batch_idx):  # pylint: disable=unused-argument
         x, y = batch
         logits = self(x)
+        
+        preds = torch.nn.functional.softmax(logits, dim=-1)
+        
+        if self.predictions.shape[0]==0:
+            self.predictions=preds.cpu().detach().numpy()
+        else:    
+            np.vstack([self.predictions,preds.cpu().detach().numpy()])
         self.test_acc(logits, y)
         self.log("test_acc", self.test_acc, on_step=False, on_epoch=True)
