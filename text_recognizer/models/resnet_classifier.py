@@ -12,7 +12,7 @@ NUM_CHANNELS = 11
 class ResnetClassifier(nn.Module):
     """Classify an image of arbitrary size through a (pretrained) ResNet network"""
 
-    def __init__(self, data_config: Dict[str, Any], args: argparse.Namespace = None) -> None:
+    def __init__(self, data_config: Dict[str, Any] = None, args: argparse.Namespace = None) -> None:
         super().__init__()
         self.args = vars(args) if args is not None else {}
 
@@ -73,7 +73,8 @@ class ResnetClassifier(nn.Module):
         torch.Tensor
             (B, C) tensor
         """
-
+        
+        x = x.float()
         x = self.preprocess(x)
         x = self.resnet(x)
 
