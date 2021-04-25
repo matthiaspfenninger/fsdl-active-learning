@@ -14,8 +14,6 @@ from text_recognizer.data.base_data_module import _download_raw_dataset, BaseDat
 from text_recognizer.data.util import BaseDataset
 
 import tensorflow as tf
-import random
-import numpy as np
 
 IMG_DIM = 65
 NUM_CLASSES = 4
@@ -77,14 +75,11 @@ class DroughtWatch(BaseDataModule):
         self.data_test = self.data_val # NOTE: the framework requires a test set, we just set it to the same as the validation set though
     
         # pool of labeled samples from which to choose from via active learning
-        # TODO: do something with this pool
-        # NOTE: we might have to change how the pool is stored and read, otherwise Colab's memory is close to its' limit...
+        with h5py.File(PROCESSED_DATA_FILE_POOL, "r") as f:
+            self.x_pool = f["x_pool"][:]
+            self.y_pool = f["y_pool"][:].squeeze().astype(int)
 
-        #with h5py.File(PROCESSED_DATA_FILE_POOL, "r") as f:
-        #    self.x_pool = f["x_pool"][:]
-        #    self.y_pool = f["y_pool"][:].squeeze().astype(int)
-
-        #self.data_pool = BaseDataset(self.x_pool, self.y_pool, transform=self.transform) 
+        self.data_pool = BaseDataset(self.x_pool, self.y_pool, transform=self.transform) 
 
 
     def __repr__(self):
@@ -167,11 +162,10 @@ def _parse_tfrecords(self, filelist, buffer_size, include_viz=False):
     # create tf dataset from filelist
     tfrecord_dataset = tf.data.TFRecordDataset(filelist)
 
-    # convert the dataset to a dataset of given size
-    tfrecord_dataset = tfrecord_dataset.map(lambda x:_parse_(x)).batch(buffer_size) #.shuffle(buffer_size).repeat(-1).batch(buffer_size)
+    # convert, shuffle and batch the dataset
+    tfrecord_dataset = tfrecord_dataset.map(lambda x:_parse_(x)).shuffle(90000, seed=42).batch(buffer_size)
     tfrecord_iterator = iter(tfrecord_dataset)
-    #image, label = tfrecord_iterator.get_next()
-    #return image, label
+
     return tfrecord_iterator
 
 def _process_raw_dataset(self, filename: str, dirname: Path):
