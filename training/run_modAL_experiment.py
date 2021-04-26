@@ -122,6 +122,8 @@ def main():
                                      verbose=1,
                                      device=device)
 
+    lit_model.summarize(mode="full")
+
     # initialize train, validation and pool datasets
     data.setup()
     X_initial = np.moveaxis(data.data_train.data, 3, 1) # shape change: (i, channels, h, w) instead of (i, h, w, channels)

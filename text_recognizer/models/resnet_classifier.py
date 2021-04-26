@@ -8,6 +8,7 @@ import torchvision
 PRETRAINED = True
 NUM_CLASSES = 4
 NUM_CHANNELS = 11
+DROPOUT = False
 
 class ResnetClassifier(nn.Module):
     """Classify an image of arbitrary size through a (pretrained) ResNet network"""
@@ -19,6 +20,7 @@ class ResnetClassifier(nn.Module):
         n_channels = self.args.get("n_channels", NUM_CHANNELS)
         n_classes = self.args.get("n_classes", NUM_CLASSES)
         pretrained = self.args.get("pretrained", PRETRAINED)
+        dropout = self.args.get("dropout", DROPOUT)
 
         # base ResNet model
         self.resnet = torchvision.models.resnet50(pretrained=pretrained)
@@ -35,8 +37,17 @@ class ResnetClassifier(nn.Module):
                 new_channel_std, new_channel_std, new_channel_std, new_channel_std, new_channel_std, new_channel_std, new_channel_std, new_channel_std]),
         ])
 
-        # adapting the no. of output classes in the model's fully-connected layer
-        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, n_classes)
+        # changing the architecture of the laster layers
+        # if dropout is activated, add an additional fully connected layer with dropout before the last layer
+        if dropout:
+            self.resnet.fc = nn.Sequential(
+                nn.Linear(self.resnet.fc.in_features, self.resnet.fc.in_features),
+                nn.Dropout(0.5),
+                nn.Linear(self.resnet.fc.in_features, n_classes)
+            )
+        # otherwise just adapt no. of classes in last fully-connected layer
+        else:
+            self.resnet.fc = nn.Linear(self.resnet.fc.in_features, n_classes)
 
         # adapting the no. of input channels to the first conv layer 
         # (adapted from https://discuss.pytorch.org/t/how-to-modify-the-input-channels-of-a-resnet-model/2623/10)
@@ -84,4 +95,5 @@ class ResnetClassifier(nn.Module):
         parser.add_argument("--pretrained", type=bool, default=PRETRAINED)
         parser.add_argument("--n_classes", type=int, default=NUM_CLASSES)
         parser.add_argument("--n_channels", type=int, default=NUM_CHANNELS)
+        parser.add_argument("--dropout", type=bool, default=DROPOUT)
         return parser
