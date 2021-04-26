@@ -50,8 +50,7 @@ class DroughtWatch(BaseDataModule):
         self.n_validation_images = self.args.get("n_validation_images", N_VAL)
         self.bands = self.args.get("--bands", ",".join(BANDS)).split(",")
 
-        if not (os.path.exists(PROCESSED_DATA_FILE_TRAINVAL) and os.path.exists(PROCESSED_DATA_FILE_POOL)):
-            _download_and_process_droughtwatch(self)
+        _check_disk_dataset_availability(self)
 
         self.mapping = list(range(NUM_CLASSES))
         self.transform = transforms.Compose([transforms.ToTensor()])
@@ -59,8 +58,7 @@ class DroughtWatch(BaseDataModule):
         self.output_dims = (1,)
 
     def prepare_data(self, *args, **kwargs) -> None:
-        if not (os.path.exists(PROCESSED_DATA_FILE_TRAINVAL) and os.path.exists(PROCESSED_DATA_FILE_POOL)):
-            _download_and_process_droughtwatch(self)
+        _check_disk_dataset_availability(self)
     
     def setup(self, stage: str = None) -> None:
 
@@ -97,6 +95,22 @@ class DroughtWatch(BaseDataModule):
         return basic + data
 
 
+def _check_disk_dataset_availability(self):
+
+    if not (os.path.exists(PROCESSED_DATA_FILE_TRAINVAL) and os.path.exists(PROCESSED_DATA_FILE_POOL)):
+        print("Processed DroughtWatch dataset not yet available on disk, initiating download/processing")
+        _download_and_process_droughtwatch(self)
+
+    else:
+        with h5py.File(PROCESSED_DATA_FILE_TRAINVAL, "r") as f:
+            n_train_samples = len(f["y_train"][:].squeeze())
+            n_val_samples = len(f["y_val"][:].squeeze())
+
+        if not (n_train_samples == self.n_train_images and n_val_samples == self.n_validation_images):
+            print("Processed DroughtWatch dataset on disk does not have correct size, initiating reprocessing")
+            _download_and_process_droughtwatch(self)
+
+
 def _download_and_process_droughtwatch(self):
 
     metadata = toml.load(METADATA_FILENAME)
@@ -121,7 +135,6 @@ def _load_data(data_path):
 
 
 def _parse_tfrecords(self, filelist, buffer_size, include_viz=False):
-
 
     # tf record parsing function
     def _parse_(serialized_example, keylist=self.bands):
@@ -153,10 +166,6 @@ def _parse_tfrecords(self, filelist, buffer_size, include_viz=False):
         image = tf.concat(bandlist, -1)
         label = tf.cast(example['label'], tf.int32) # NOTE: no one-hot encoding for PyTorch optimizer! (different than in TensorFlow)
     
-        # if logging RGB images as examples, generate RGB image from 11-channel satellite image
-        if include_viz:
-            image = get_img_from_example(example)
-            return {'image' : image, 'label': example['label']}, label
         return {'image': image}, label
     
     # create tf dataset from filelist
@@ -175,8 +184,8 @@ def _process_raw_dataset(self, filename: str, dirname: Path):
     os.chdir(dirname)
 
     if not os.path.exists(DL_DATA_DIRNAME / "droughtwatch_data"):
-        zip_file = zipfile.ZipFile(filename, "r")
-        zip_file.extractall()
+        with zipfile.ZipFile(filename, "r") as zip_file:
+            zip_file.extractall()
 
     print("Loading train/validation datasets as TF tensor")
     train_tfrecords, val_tfrecords = _load_data(DL_DATA_DIRNAME / "droughtwatch_data")
