@@ -4,7 +4,6 @@ import importlib
 import numpy as np
 import torch
 import pytorch_lightning as pl
-from torch.utils.data.dataloader import DataLoader
 from skorch import NeuralNetClassifier
 from modAL.models import ActiveLearner
 from text_recognizer import lit_models
