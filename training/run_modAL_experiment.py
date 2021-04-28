@@ -7,6 +7,7 @@ import pytorch_lightning as pl
 import wandb
 
 from modAL.models import ActiveLearner
+import skorch
 from skorch import NeuralNetClassifier
 from skorch.callbacks import WandbLogger
 from skorch.helper import predefined_split
@@ -67,6 +68,27 @@ def _setup_parser():
     parser.add_argument("--help", "-h", action="help")
     return parser
 
+def _log_skorch_history(history: skorch.history.History, al_iter: int, epoch_start: int, train_acc: float, wandb_logging: bool = True):
+
+    for epoch, train_loss, valid_loss, valid_acc, dur in history[:, ('epoch', 'train_loss', 'valid_loss', 'valid_acc', 'dur')]:
+
+        metrics = {
+            'epoch': epoch_start + epoch, 
+            'train_loss': train_loss, 
+            'valid_loss': valid_loss, 
+            'valid_acc': valid_acc, 
+            'dur': dur,
+            'al_iter': al_iter, 
+        }
+                
+        # add train_acc to last item of history
+        if epoch == len(history[:, 'train_loss']):
+            metrics['train_acc'] = train_acc
+
+        #print(metrics)
+        if wandb_logging:
+            wandb.log(metrics)
+
 
 def main():
     """
@@ -104,20 +126,23 @@ def main():
 
     logger = pl.loggers.TensorBoardLogger("training/logs")
 
+
     # modAL specific experiment setup
     # -------------------------------
 
+    # initialize wandb with pytorch model
     if args.wandb:
-            wandb_run = wandb.init()
-            wandb_run.config.update(vars(args))
-            logger = WandbLogger(wandb_run)
-        
+        wandb.init(config=args)
+        wandb.watch(model, log_freq=100)
+
+    # evaluate query strategy from args parameter
     if args.al_query_strategy in ["uncertainty_sampling", "margin_sampling", "entropy_sampling"]:
         query_strategy = _import_class(f"modAL.uncertainty.{args.al_query_strategy}")
     else:
         query_strategy = _import_class(f"text_recognizer.active_learning.{args.al_query_strategy}")
 
-    device = "cuda" if torch.cuda.is_available() else "cpu" # ignore --gpu flag, instead just set gpu based on availability
+    # cpu vs. gpu: ignore --gpu args param, instead just set gpu based on availability
+    device = "cuda" if torch.cuda.is_available() else "cpu" 
 
      # initialize train, validation and pool datasets
     data.setup()
@@ -128,17 +153,18 @@ def main():
     X_pool = np.moveaxis(data.data_pool.data, 3, 1) # shape change
     y_pool = data.data_pool.targets
 
-    # initialize skorch/modAL classifier
-    classifier = NeuralNetClassifier(lit_model,
+    # initialize skorch classifier
+    classifier = NeuralNetClassifier(model,
                                      criterion=torch.nn.CrossEntropyLoss,
                                      optimizer=torch.optim.Adam,
                                      train_split=predefined_split(Dataset(X_val, y_val)),
                                      verbose=1,
                                      device=device,
-                                     callbacks=[logger])
+                                     )
 
     lit_model.summarize(mode="full")
 
+    # initialize modal active learner
     print("Initializing model with base training set")
     learner = ActiveLearner(
         estimator=classifier,
@@ -148,41 +174,32 @@ def main():
         query_strategy=query_strategy
     )
 
-    train_acc = learner.score(learner.X_training, learner.y_training)
-    val_acc = learner.score(X_val, y_val)
-    print(f"Train accuracy: {train_acc}")
-    print(f"Validation accuracy: {val_acc}")
-    
-    if args.wandb:
-        wandb_run.log({
-            'train_acc': train_acc, 
-            'valid_acc': val_acc, 
-            'al_iter': 0, 
-            'epoch': args.al_epochs_init})
+    _log_skorch_history(
+        history = learner.estimator.history, 
+        al_iter = 0, 
+        epoch_start = 0, 
+        train_acc = learner.score(learner.X_training, learner.y_training),
+        wandb_logging = args.wandb)
 
     # active learning loop
     for idx in range(args.al_n_iter):
+
         print('Query no. %d' % (idx + 1))
         query_idx, query_instance = learner.query(X_pool, n_instances=args.al_samples_per_iter)
         learner.teach(
             X=X_pool[query_idx], y=y_pool[query_idx], only_new=args.al_incr_onlynew, epochs=args.al_epochs_incr
         )
 
+        _log_skorch_history(
+            history = learner.estimator.history, 
+            al_iter = idx+1, 
+            epoch_start = args.al_epochs_init + idx*args.al_epochs_incr, 
+            train_acc = learner.score(learner.X_training, learner.y_training),
+            wandb_logging = args.wandb)
+
         # remove queried instances from pool
         X_pool = np.delete(X_pool, query_idx, axis=0)
         y_pool = np.delete(y_pool, query_idx, axis=0)
-
-        train_acc = learner.score(learner.X_training, learner.y_training)
-        val_acc = learner.score(X_val, y_val)
-        print(f"Train accuracy: {train_acc}")
-        print(f"Validation accuracy: {val_acc}")
-        
-        if args.wandb:
-            wandb_run.log({
-                'train_acc': train_acc, 
-                'valid_acc': val_acc, 
-                'al_iter': idx+1, 
-                'epoch': args.al_epochs_init+(idx+1)*args.al_epochs_incr})
 
 
 if __name__ == "__main__":
