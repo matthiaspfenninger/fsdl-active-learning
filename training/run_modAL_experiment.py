@@ -154,7 +154,7 @@ def main():
     print(f"Validation accuracy: {val_acc}")
     
     if args.wandb:
-        logger.log_metrics({
+        wandb_run.log({
             'train_acc': train_acc, 
             'valid_acc': val_acc, 
             'al_iter': 0, 
@@ -178,7 +178,7 @@ def main():
         print(f"Validation accuracy: {val_acc}")
         
         if args.wandb:
-            logger.log_metrics({
+            wandb_run.log({
                 'train_acc': train_acc, 
                 'valid_acc': val_acc, 
                 'al_iter': idx+1, 
