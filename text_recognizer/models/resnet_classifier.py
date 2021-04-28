@@ -41,10 +41,14 @@ class ResnetClassifier(nn.Module):
         # if dropout is activated, add an additional fully connected layer with dropout before the last layer
         if dropout:
             self.resnet.fc = nn.Sequential(
-                nn.Linear(self.resnet.fc.in_features, self.resnet.fc.in_features),
-                nn.Dropout(0.5),
-                nn.Linear(self.resnet.fc.in_features, n_classes)
-            )
+                nn.Linear(self.resnet.fc.in_features, self.resnet.fc.in_features), # additional fc layer
+                nn.ReLU(), # additional nonlinearity
+                nn.Dropout(0.5), # additional dropout layer
+                nn.Linear(self.resnet.fc.in_features, 512), # additional fc layer
+                nn.ReLU(), # additional nonlinearity
+                nn.Dropout(0.5), # additional dropout layer
+                nn.Linear(512, n_classes) # same fc layer as we had before
+        )
         # otherwise just adapt no. of classes in last fully-connected layer
         else:
             self.resnet.fc = nn.Linear(self.resnet.fc.in_features, n_classes)
