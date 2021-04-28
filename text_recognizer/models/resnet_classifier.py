@@ -9,6 +9,8 @@ PRETRAINED = True
 NUM_CLASSES = 4
 NUM_CHANNELS = 11
 DROPOUT = False
+DROPUT_PROB = 0.5
+DROPOUT_HIDDEN_DIM = 512
 
 class ResnetClassifier(nn.Module):
     """Classify an image of arbitrary size through a (pretrained) ResNet network"""
@@ -42,12 +44,14 @@ class ResnetClassifier(nn.Module):
         if dropout:
             self.resnet.fc = nn.Sequential(
                 nn.Linear(self.resnet.fc.in_features, self.resnet.fc.in_features), # additional fc layer
+                nn.BatchNorm1d(self.resnet.fc.in_features), # adding batchnorm
                 nn.ReLU(), # additional nonlinearity
-                nn.Dropout(0.5), # additional dropout layer
-                nn.Linear(self.resnet.fc.in_features, 512), # additional fc layer
+                nn.Dropout(DROPUT_PROB), # additional dropout layer
+                nn.Linear(self.resnet.fc.in_features, DROPOUT_HIDDEN_DIM), # additional fc layer
+                nn.BatchNorm1d(DROPOUT_HIDDEN_DIM), # adding batchnorm
                 nn.ReLU(), # additional nonlinearity
-                nn.Dropout(0.5), # additional dropout layer
-                nn.Linear(512, n_classes) # same fc layer as we had before
+                nn.Dropout(DROPUT_PROB), # additional dropout layer
+                nn.Linear(DROPOUT_HIDDEN_DIM, n_classes) # same fc layer as we had before
         )
         # otherwise just adapt no. of classes in last fully-connected layer
         else:
