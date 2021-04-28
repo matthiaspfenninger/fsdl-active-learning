@@ -4,8 +4,14 @@ import importlib
 import numpy as np
 import torch
 import pytorch_lightning as pl
-from skorch import NeuralNetClassifier
+import wandb
+
 from modAL.models import ActiveLearner
+from skorch import NeuralNetClassifier
+from skorch.callbacks import WandbLogger
+from skorch.helper import predefined_split
+from skorch.dataset import Dataset
+
 from text_recognizer import lit_models
 
 # In order to ensure reproducible experiments, we must set random seeds.
@@ -98,15 +104,14 @@ def main():
 
     logger = pl.loggers.TensorBoardLogger("training/logs")
 
-    if args.wandb:
-        logger = pl.loggers.WandbLogger()
-        logger.watch(model)
-        logger.log_hyperparams(vars(args))
-    
-
     # modAL specific experiment setup
     # -------------------------------
 
+    if args.wandb:
+            wandb_run = wandb.init()
+            wandb_run.config.update(vars(args))
+            logger = WandbLogger(wandb_run)
+        
     if args.al_query_strategy in ["uncertainty_sampling", "margin_sampling", "entropy_sampling"]:
         query_strategy = _import_class(f"modAL.uncertainty.{args.al_query_strategy}")
     else:
@@ -114,16 +119,7 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu" # ignore --gpu flag, instead just set gpu based on availability
 
-    classifier = NeuralNetClassifier(lit_model,
-                                     criterion=torch.nn.CrossEntropyLoss,
-                                     optimizer=torch.optim.Adam,
-                                     train_split=None,
-                                     verbose=1,
-                                     device=device)
-
-    lit_model.summarize(mode="full")
-
-    # initialize train, validation and pool datasets
+     # initialize train, validation and pool datasets
     data.setup()
     X_initial = np.moveaxis(data.data_train.data, 3, 1) # shape change: (i, channels, h, w) instead of (i, h, w, channels)
     y_initial = data.data_train.targets
@@ -131,6 +127,17 @@ def main():
     y_val = data.data_val.targets
     X_pool = np.moveaxis(data.data_pool.data, 3, 1) # shape change
     y_pool = data.data_pool.targets
+
+    # initialize skorch/modAL classifier
+    classifier = NeuralNetClassifier(lit_model,
+                                     criterion=torch.nn.CrossEntropyLoss,
+                                     optimizer=torch.optim.Adam,
+                                     train_split=predefined_split(Dataset(X_val, y_val)),
+                                     verbose=1,
+                                     device=device,
+                                     callbacks=[logger])
+
+    lit_model.summarize(mode="full")
 
     print("Initializing model with base training set")
     learner = ActiveLearner(
@@ -149,7 +156,7 @@ def main():
     if args.wandb:
         logger.log_metrics({
             'train_acc': train_acc, 
-            'val_acc': val_acc, 
+            'valid_acc': val_acc, 
             'al_iter': 0, 
             'epoch': args.al_epochs_init})
 
@@ -173,7 +180,7 @@ def main():
         if args.wandb:
             logger.log_metrics({
                 'train_acc': train_acc, 
-                'val_acc': val_acc, 
+                'valid_acc': val_acc, 
                 'al_iter': idx+1, 
                 'epoch': args.al_epochs_init+(idx+1)*args.al_epochs_incr})
 
