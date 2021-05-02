@@ -4,14 +4,21 @@ Implementation of various active learning techniques for the course FSDL Spring 
 from typing import Tuple
 import torch
 import numpy as np
+import pandas as pd
 from modAL.models import ActiveLearner
+import hdbscan
+from math import ceil
 
 T_DEFAULT = 10
 N_INSTANCES_DEFAULT = 100
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 32
 DEBUG_OUTPUT = True
-
+HDBSCAN_MIN_CLUSTER_SIZE = 500
+OUTLIER_QUANTILE = 0.9
+OUTLIER_FRACTION = 0.2
+EMBEDDING_LAYER = "avgpool"
+EMBEDDING_SIZE = 2048
 
 def max_entropy(learner: ActiveLearner, X: np.array, n_instances: int = N_INSTANCES_DEFAULT, T: int = T_DEFAULT) -> Tuple[torch.Tensor, np.array]:
     """Active learning sampling technique that maximizes the predictive entropy based on the paper
@@ -178,3 +185,160 @@ def _max_entropy_scoring_function(learner, batch, T):
 
     acquisitions = torch.sum((-mean_outputs * torch.log(mean_outputs + 1e-10)), dim=-1)
     return acquisitions
+
+
+def hdbscan_glosh(learner: ActiveLearner, X: np.array, n_instances: int = N_INSTANCES_DEFAULT, min_cluster_size: int = HDBSCAN_MIN_CLUSTER_SIZE) -> Tuple[torch.Tensor, np.array]:
+    """Active learning sampling technique that translates instances from the pool to features by using an internal layer of the
+    learner model as featurizer, performing HDBSCAN to cluster the instances and then returning a combination of instances spread 
+    across all clusters and outliers detected via GLOSH.
+
+    Examples
+    --------
+    >>> classifier = skorch.NeuralNetClassifier(MyModelClass, ...)
+    >>> learner = modAL.models.ActiveLearner(estimator = classifier, query_strategy = hdbscan_glosh, ...) # set hdbscan_glosh strategy here
+    >>> query_idx, query_instance = learner.query(sample_pool_X, ...) # strategy is then used here
+    >>> learner.teach(X = sample_pool_X[query_idx], y = sample_pool_y[query_idx], ...)
+
+    Parameters
+    ----------
+    learner : modAL.models.ActiveLearner
+      modAL ActiveLearner instance with which the sampling technique should be used
+
+    X : numpy.array 
+      Array of instances from which to sample from
+
+    n_instances : int (default = 100)
+      Number of instsances that should be sampled
+
+    min_cluster_size : int (default = 100)
+      Minimum number of points inside one cluster (used for HDBSCAN clustering algorithm)
+
+
+    Returns
+    -------
+    Tuple of indexes and corresponding data instances that were chosen based on the sampling strategy.
+    """
+
+    if DEBUG_OUTPUT:
+        print("Featurizing pool of instances for diversity sampling...")
+        print("(Note: Based on the pool size this takes a while. Will generate debug output every 10%.)")
+        ten_percent = int(len(X)/BATCH_SIZE/10)
+        i = 0
+        percentage_output = 10
+
+    # initialize pytorch tensor to store features
+    all_features = torch.Tensor().to(DEVICE)
+
+    # create pytorch dataloader for batch-wise processing
+    all_samples = torch.utils.data.DataLoader(X, batch_size=BATCH_SIZE)
+
+    # add hook to model that generates our features
+    layer = learner.estimator.module.resnet._modules.get(EMBEDDING_LAYER)
+    batch_features = torch.zeros(BATCH_SIZE, EMBEDDING_SIZE, 1, 1).to(DEVICE)
+
+    def copy_data(m, i, o):
+        batch_features.copy_(o.data)
+
+    hook = layer.register_forward_hook(copy_data)     
+
+    # process pool of instances batch wise to featurize
+    for batch in all_samples:
+
+        # if last batch smaller: avoid size mismatch
+        if batch.shape[0] < BATCH_SIZE:
+            batch_features = torch.zeros(batch.shape[0], EMBEDDING_SIZE, 1, 1)
+        
+        # feed batch into network (get out features via registered hook)
+        _ = learner.estimator.forward(batch, training=False, device=DEVICE)
+
+        all_features = torch.cat([all_features, batch_features], dim=0)
+
+        if DEBUG_OUTPUT:
+            i += 1
+            if i > 2:
+                break 
+            if i > ten_percent:
+                print(f"{percentage_output}% of samples in pool featurized")
+                percentage_output += 10
+                i = 0
+
+    hook.remove()
+
+    if DEBUG_OUTPUT:
+        print("Performing clustering...")
+
+    all_features = all_features.squeeze().cpu().numpy()
+
+    # perform clustering
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size).fit(all_features)
+
+    # initialize variables needed below
+    outlier_threshold = pd.Series(clusterer.outlier_scores_).quantile(OUTLIER_QUANTILE)
+    n_features = len(all_features)
+    n_clusters = clusterer.labels_.max()+1
+    instances_per_cluster = int(n_instances/n_clusters)
+    all_selected_idx = np.array([]).astype(int)
+
+    # check whether distribution between clusters can be done even - if not, distribute remaining equally
+    if n_instances % n_clusters != 0:
+        leftover_instances = n_instances-instances_per_cluster*n_clusters
+    else:
+        leftover_instances = 0
+
+    if DEBUG_OUTPUT:
+        print(f"{n_clusters} found, entering loop to pick instances in all of them...")
+    
+    # loop over clusters to select instances in all of them
+    for cluster_id in range(n_clusters):
+
+        # distribute remaining instances if needed
+        if leftover_instances > 0:
+            remaining_clusters = n_clusters - cluster_id
+            additional_instances = ceil((leftover_instances / remaining_clusters))
+            instances_in_cluster = instances_per_cluster + additional_instances
+            leftover_instances -= additional_instances
+        else:
+            instances_in_cluster = instances_per_cluster
+
+        n_outliers = int(instances_in_cluster*OUTLIER_FRACTION)
+        n_regular = instances_in_cluster-n_outliers
+
+        # limit pool to current cluster only
+        cluster_idx_all = np.where(clusterer.labels_ == cluster_id)[0]
+        regular_idx_all = np.where(clusterer.outlier_scores_[cluster_idx_all] < outlier_threshold)[0]
+        outlier_idx_all = np.where(clusterer.outlier_scores_[cluster_idx_all] >= outlier_threshold)[0]
+
+        # avoid having a pool that is too small to sample from
+        if len(regular_idx_all) < n_regular:
+            leftover_instances += (n_regular-len(regular_idx_all))
+            n_regular = len(regular_idx_all)
+        if len(outlier_idx_all) < n_outliers:
+            leftover_instances += (n_outliers-len(outlier_idx_all))
+            n_outliers = len(outlier_idx_all)
+
+        # select both regular and outlier instances for this cluster
+        regular_idx_selected = np.random.choice(len(regular_idx_all), size=n_regular, replace=False)      
+        outlier_idx_selected = np.random.choice(len(outlier_idx_all), size=n_outliers, replace=False)
+
+        # calculate all idx that are selected from this cluster
+        if n_outliers > 0:
+            outlier_idx_original = np.array(range(n_features))[cluster_idx_all][outlier_idx_all][outlier_idx_selected] # outlier idx of this cluster (idx translated to full pool)
+        else:
+            outlier_idx_original = np.array([]).astype(int)
+
+        if n_regular > 0:
+            regular_idx_original = np.array(range(n_features))[cluster_idx_all][regular_idx_all][regular_idx_selected] # regular idx of this cluster (idx translated to full pool)
+        else:
+            regular_idx_original = np.array([]).astype(int)
+
+        cluster_idx_selected = np.concatenate([outlier_idx_original, regular_idx_original])
+
+        all_selected_idx = np.concatenate([all_selected_idx, cluster_idx_selected])
+
+        if DEBUG_OUTPUT:
+            print(f"Instance selection on cluster no. {cluster_id} done.")
+
+    if len(all_selected_idx) < n_instances:
+        print(f"CAUTION: hdbscan_glosh algorithm was not able to build a set of {n_instances} instances as requested, instead only returning {len(all_selected_idx)} instances.")
+
+    return all_selected_idx, X[all_selected_idx]

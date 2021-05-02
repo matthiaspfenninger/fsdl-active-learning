@@ -63,7 +63,10 @@ def _setup_parser():
     parser.add_argument("--al_n_iter", type=int, default=10, help="No. of active learning iterations")
     parser.add_argument("--al_samples_per_iter", type=int, default=100, help="No. of samples to query per active learning iteration")
     parser.add_argument("--al_incr_onlynew", type=bool, default=False, help="Whether to take only newly queried samples in each active learning iterations, or the full training data")
-    parser.add_argument("--al_query_strategy", type=str, choices=["uncertainty_sampling", "margin_sampling", "entropy_sampling", "max_entropy", "bald", "random"], default="uncertainty_sampling", help="Active learning query strategy")
+    parser.add_argument("--al_query_strategy", type=str, choices=["uncertainty_sampling", "margin_sampling", "entropy_sampling", "max_entropy", "bald", "random", "hdbscan_glosh"], default="uncertainty_sampling", help="Active learning query strategy")
+
+    # For debugging / development purposes
+    parser.add_argument("--reduced_develop_train_size", type=bool, default=False, help="Whether to take only a very small set to train (allows for faster results during development)")
 
     parser.add_argument("--help", "-h", action="help")
     return parser
@@ -146,8 +149,14 @@ def main():
 
      # initialize train, validation and pool datasets
     data.setup()
+
     X_initial = np.moveaxis(data.data_train.data, 3, 1) # shape change: (i, channels, h, w) instead of (i, h, w, channels)
     y_initial = data.data_train.targets
+    if args.reduced_develop_train_size:
+        print("NOTE: Reduced initial train set size for development activated")
+        X_initial = X_initial[:100, :, :, :]
+        y_initial = y_initial[:100]
+
     X_val = np.moveaxis(data.data_val.data, 3, 1) # shape change
     y_val = data.data_val.targets
     X_pool = np.moveaxis(data.data_pool.data, 3, 1) # shape change
