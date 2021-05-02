@@ -9,6 +9,10 @@ Comparing different active learning strategies for image classification (FSDL co
     - [ResNet Image Classifier](#resnet-image-classifier)
     - [modAL Active Learning Experiment Running Framework](#modal-active-learning-experiment-running-framework)
       - [modAL Sampling Strategy Extensions](#modal-sampling-strategy-extensions)
+        - [bald](#bald)
+        - [hdbscan_glosh](#hdbscan_glosh)
+        - [max_entropy](#max_entropy)
+        - [random](#random)
   - [Quickstart](#quickstart)
     - [Local](#local)
     - [Google Colab](#google-colab)
@@ -42,6 +46,26 @@ The model can be used for transfer learning on the drought prediction data.
 [text_recognizer/active_learning/modal_extensions.py](./text_recognizer/active_learning/modal_extensions.py): Implementation of different sampling strategies for active learning via [modAL library](https://github.com/modAL-python/modAL).
 
 Note that the strategies `bald` and `max_entropy` only make sense when there is a `dropout` layer in the network.
+
+##### bald
+
+Active learning sampling technique that maximizes the information gain via maximising mutual information between predictions and model posterior (Bayesian Active Learning by Disagreement - BALD) as depicted in the papers [Deep Bayesian Active Learning with Image Data](https://arxiv.org/pdf/1703.02910.pdf) and [Bayesian Active Learning for Classification and Preference Learning](https://arxiv.org/pdf/1112.5745.pdf).
+
+##### hdbscan_glosh
+
+Self-developed diversity sampling technique:
+
+1. Translates instances from the pool to features by tapping into an intermediate layer of the adapted ResNet model
+2. Performs clustering via HDBSCAN and additionally assigns an outlier score to each instance via GLOSH
+3. Samples instances evenly from all clusters, and takes both outlier and non-outlier points by considering the outlier score
+
+##### max_entropy
+
+Active learning sampling technique that maximizes the predictive entropy based on the paper [Deep Bayesian Active Learning with Image Data](https://arxiv.org/pdf/1703.02910.pdf).
+
+##### random
+
+Baseline active learning sampling technique that takes random instances from available pool.
 
 ## Quickstart
 

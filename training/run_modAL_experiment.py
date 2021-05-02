@@ -63,7 +63,7 @@ def _setup_parser():
     parser.add_argument("--al_n_iter", type=int, default=10, help="No. of active learning iterations")
     parser.add_argument("--al_samples_per_iter", type=int, default=100, help="No. of samples to query per active learning iteration")
     parser.add_argument("--al_incr_onlynew", type=bool, default=False, help="Whether to take only newly queried samples in each active learning iterations, or the full training data")
-    parser.add_argument("--al_query_strategy", type=str, choices=["uncertainty_sampling", "margin_sampling", "entropy_sampling", "max_entropy", "bald", "random"], default="uncertainty_sampling", help="Active learning query strategy")
+    parser.add_argument("--al_query_strategy", type=str, choices=["uncertainty_sampling", "margin_sampling", "entropy_sampling", "max_entropy", "bald", "random", "hdbscan_glosh"], default="uncertainty_sampling", help="Active learning query strategy")
 
     parser.add_argument("--help", "-h", action="help")
     return parser

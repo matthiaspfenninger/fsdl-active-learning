@@ -19,3 +19,4 @@ pillow
 wandb
 modAL
 skorch
+hdbscan

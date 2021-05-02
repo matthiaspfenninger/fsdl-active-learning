@@ -85,6 +85,7 @@ class DroughtWatch(BaseDataModule):
         if self.data_train is None and self.data_val is None and self.data_test is None:
             return basic
 
+        # deepcode ignore unguarded~next~call: call to just initialized train_dataloader always returns data
         x, y = next(iter(self.train_dataloader()))
         data = (
             f"Train/val sizes: {len(self.data_train)}, {len(self.data_val)}\n"
