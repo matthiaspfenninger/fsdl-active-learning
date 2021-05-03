@@ -270,12 +270,18 @@ def hdbscan_glosh(learner: ActiveLearner, X: np.array, n_instances: int = N_INST
     all_features = all_features.squeeze().cpu().numpy()
 
     # perform clustering
-    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size).fit(all_features)
+    n_clusters = -1
+    while n_clusters < 1:
+        clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size).fit(all_features)
+        n_clusters = clusterer.labels_.max()+1
+        if n_clusters < 1:
+            if DEBUG_OUTPUT:
+                print(f"HDBSCAN was not able to find clusters, halving min. cluster size from {min_cluster_size} to {int(min_cluster_size/2)}")
+            min_cluster_size = int(min_cluster_size/2)
 
     # initialize variables needed below
     outlier_threshold = pd.Series(clusterer.outlier_scores_).quantile(OUTLIER_QUANTILE)
     n_features = len(all_features)
-    n_clusters = clusterer.labels_.max()+1
     instances_per_cluster = int(n_instances/n_clusters)
     all_selected_idx = np.array([]).astype(int)
 
@@ -286,7 +292,7 @@ def hdbscan_glosh(learner: ActiveLearner, X: np.array, n_instances: int = N_INST
         leftover_instances = 0
 
     if DEBUG_OUTPUT:
-        print(f"{n_clusters} found, entering loop to pick instances in all of them...")
+        print(f"{n_clusters} clusters found, entering loop to pick instances in all of them...")
     
     # loop over clusters to select instances in all of them
     for cluster_id in range(n_clusters):
