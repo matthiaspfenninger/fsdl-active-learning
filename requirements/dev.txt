@@ -190,7 +190,7 @@ nest-asyncio==1.5.1
     # via nbclient
 nltk==3.5
     # via -r dev.in
-notebook==6.3.0
+notebook==6.4.1
     # via nbclassic
 numpy==1.19.5
     # via
