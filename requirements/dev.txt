@@ -137,14 +137,12 @@ jupyter-core==4.7.1
     #   nbconvert
     #   nbformat
     #   notebook
-jupyter-packaging==0.7.12
-    # via jupyterlab
 jupyter-server==1.5.1
     # via
     #   jupyterlab
     #   jupyterlab-server
     #   nbclassic
-jupyterlab==3.0.12
+jupyterlab==3.0.17
     # via -r dev.in
 jupyterlab-pygments==0.1.2
     # via nbconvert
@@ -192,7 +190,7 @@ nest-asyncio==1.5.1
     # via nbclient
 nltk==3.5
     # via -r dev.in
-notebook==6.3.0
+notebook==6.4.1
     # via nbclassic
 numpy==1.19.5
     # via
@@ -209,7 +207,6 @@ packaging==20.9
     # via
     #   bleach
     #   dparse
-    #   jupyter-packaging
     #   jupyterlab
     #   jupyterlab-server
     #   pytest
